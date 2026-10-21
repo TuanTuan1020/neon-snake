@@ -13,6 +13,15 @@
 .game-foot #hint{font-size:10px;margin-top:7px;line-height:1.5}
 @media(max-height:650px){#controls{--key-height:48px;width:min(100%,244px);gap:5px}.direction-key{border-radius:14px;font-size:27px}.game-foot{padding-top:5px}#buffs{margin-bottom:4px}.game-foot #hint{margin-top:4px}}
 @media(max-height:570px){#controls{--key-height:44px}.game-foot #hint{display:none}}
+
+.math-question{padding:26px 8px;text-align:center;font-size:clamp(38px,10vw,56px);font-weight:800;letter-spacing:1px;border:1px solid #34462c;border-radius:22px;background:#152018;color:var(--green);font-variant-numeric:tabular-nums}
+.math-question span{color:#94b886}
+.math-answers{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.math-answer{min-height:76px;font-size:30px;font-weight:800;border-color:#49613e}
+.math-answer:active{background:var(--green);color:#14210c}
+.math-answer.wrong{border-color:#a35d70;color:#ed8fa5;opacity:.45}
+.sheet>.math-feedback{min-height:22px;text-align:center;color:var(--green)}
+@media(max-height:650px){.math-question{padding:20px 8px}.math-answer{min-height:64px}.sheet .result-score{font-size:58px}}
 </style></head><body><main id="app"><header><strong>霓蛇 <span class="muted">/ 单机</span></strong><span class="coin">◈ <b id="coins">0</b></span></header>
 <section id="home" class="screen active"><div class="hero"><div class="label">指尖一划 · 再来一局</div><h1>越贪心<br>越<span>上头</span></h1><p>吃掉光点，找到你的节奏<br>下一次转弯，可能就是新纪录</p><div class="hero-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><b>✦</b></div></div><div class="home-actions"><button class="primary" id="start">开始游戏 ↗</button><div class="two"><button id="shopBtn">蛇的衣橱</button><button id="settingsBtn">设置</button></div></div><div class="home-foot"><span>本机最高 <b id="homeBest">0</b></span><span>方向键 + 滑动 · 双重操控</span></div></section>
 <section id="game" class="screen"><div class="stats"><div><small>本局得分</small><b id="score">0</b></div><div><small>本机最高</small><b id="best">0</b></div><div class="combo"><small>连击倍率</small><b id="combo">×1</b></div><button id="pauseBtn" class="small" aria-label="暂停">暂停</button></div><div class="meter"><i id="comboBar"></i></div><div class="arena" id="arena"><canvas id="board" aria-label="贪吃蛇游戏棋盘"></canvas><div id="notice"></div></div><div class="game-foot"><div id="buffs">点按方向键，或自由滑动</div>
@@ -65,6 +74,10 @@ const CFG={
   moveEvery:.9,
   safeRadius:4,
   coinDivisor:40,
+  mathMax:10,
+  reviveLength:4,
+  reviveSafeRadius:4,
+  reviveWait:1,
   particleCount:14,
   particleLimit:100,
   floatLimit:12,
@@ -95,11 +108,74 @@ function closeModal(){$('overlay').classList.remove('open');$('sheet').innerHTML
 function same(a,b){return a.x===b.x&&a.y===b.y;}function dist(a,b){return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);}
 function freeCell(){for(let n=0;n<700;n++){const p={x:Math.floor(Math.random()*CFG.cols),y:Math.floor(Math.random()*CFG.rows)};if(!g.snake.some(s=>same(s,p))&&!g.obstacles.some(s=>same(s,p))&&!g.fruits.some(s=>same(s,p))&&!(g.pending||[]).some(s=>same(s,p)))return p;}for(let y=0;y<CFG.rows;y++)for(let x=0;x<CFG.cols;x++){const p={x,y};if(!g.snake.some(s=>same(s,p))&&!g.obstacles.some(s=>same(s,p))&&!g.fruits.some(s=>same(s,p))&&!(g.pending||[]).some(s=>same(s,p)))return p;}return null;}
 function spawn(type){const p=freeCell();if(p)g.fruits.push({...p,type,expires:type==='gold'?g.time+CFG.goldLife:Infinity});}
-function start(){initAudio();resetControls();pointer=null;closeModal();g={snake:Array.from({length:CFG.startLength},(_,i)=>({x:7-i,y:13})),prev:[],dir:DIR.R,queue:[],score:0,time:0,fruits:[],obstacles:[],pending:[],combo:0,bestCombo:1,lastFruit:-100,eaten:0,grow:0,nextUpgrade:CFG.upgradeEvery,slow:1,magnet:false,shields:0,wallUntil:0,doubleUntil:0,invUntil:0,nextGold:CFG.goldInterval,level:0,nextObstacles:CFG.staticAt,moveClock:0,goldCount:0,poisonCount:0,record:save.best,settled:false};g.prev=g.snake.map(p=>({...p}));particles=[];floats=[];spawn('normal');if(CFG.stage>=2)spawn('poison');state='playing';acc=0;last=performance.now();screen('game');resize();hud();notify('点按方向键，或轻划转弯',3);}
+function start(){initAudio();resetControls();pointer=null;closeModal();g={snake:Array.from({length:CFG.startLength},(_,i)=>({x:7-i,y:13})),prev:[],dir:DIR.R,queue:[],score:0,time:0,fruits:[],obstacles:[],pending:[],combo:0,bestCombo:1,lastFruit:-100,eaten:0,grow:0,nextUpgrade:CFG.upgradeEvery,slow:1,magnet:false,shields:0,wallUntil:0,doubleUntil:0,invUntil:0,nextGold:CFG.goldInterval,level:0,nextObstacles:CFG.staticAt,moveClock:0,goldCount:0,poisonCount:0,record:save.best,settled:false,awardedCoins:0,revives:0,resumeWait:0,reviveQuestion:null};g.prev=g.snake.map(p=>({...p}));particles=[];floats=[];spawn('normal');if(CFG.stage>=2)spawn('poison');state='playing';acc=0;last=performance.now();screen('game');resize();hud();notify('点按方向键，或轻划转弯',3);}
 function enqueue(d){if(state!=='playing'||g.queue.length>=CFG.queue)return false;const prior=g.queue[g.queue.length-1]||g.dir;if((d.x===-prior.x&&d.y===-prior.y)||same(d,prior))return false;g.queue.push(d);return true;}
 function interval(){return Math.max(CFG.minStep,CFG.step*g.slow*Math.pow(CFG.speedFactor,g.level));}
-function die(){state='dead';vibrate([70,40,140]);sound('die');settle();}
-function settle(){if(g.settled)return;g.settled=true;let coins=CFG.stage>=4?Math.floor(g.score/CFG.coinDivisor):0;const record=g.score>save.best;if(CFG.stage>=4){save.coins+=coins;save.best=Math.max(save.best,g.score);persist();}refresh();modal(`<div class="label">${record?'新纪录 · 漂亮的一局':'这一局，到这里'}</div><h2>${record?'✦ 超越自己':'差一点，就更远'}</h2><div class="result-score ${record?'burst':''}">${g.score}</div><div class="result-details"><div><small>最佳连击</small><b>×${g.bestCombo}</b></div><div><small>本局金币</small><b>+${coins}</b></div></div><p>${record?'✦ 新的标杆已经留下，下一局还能更高 ✦':`再 ${Math.max(1,save.best-g.score+1)} 分就破纪录！`}</p><button class="primary" id="again">再来一局 ↗</button><button id="backHome">返回首页</button>`);$('again').onclick=start;$('backHome').onclick=home;}
+function die(){
+  if(state!=='playing'&&state!=='paused')return;
+  state='dead';pointer=null;g.queue=[];
+  vibrate([70,40,140]);sound('die');settle();
+}
+function settle(){
+  if(g.settled)return;
+  g.settled=true;
+  // 同一局复活只补发新增金币，避免多次死亡重复领取。
+  const total=CFG.stage>=4?Math.floor(g.score/CFG.coinDivisor):0;
+  const added=Math.max(0,total-g.awardedCoins);
+  g.awardedCoins+=added;
+  if(CFG.stage>=4){save.coins+=added;save.best=Math.max(save.best,g.score);persist();}
+  refresh();showResult();
+}
+function showResult(){
+  const record=g.score>g.record;
+  modal(`<div class="label">${record?'新纪录 · 漂亮的一局':'这一局，还能继续'}</div><h2>${record?'✦ 超越自己':'再给自己一次机会'}</h2><div class="result-score ${record?'burst':''}">${g.score}</div><div class="result-details"><div><small>最佳连击</small><b>×${g.bestCombo}</b></div><div><small>本局累计金币</small><b>+${g.awardedCoins}</b></div></div><p>${record?'新的标杆已经留下':`再 ${Math.max(1,save.best-g.score+1)} 分就破纪录！`}<br>答对一道 ${CFG.mathMax} 以内加减法，就能复活继续</p><button class="primary" id="reviveBtn">答题复活 ↗</button><div class="two"><button id="again">重新开始</button><button id="backHome">返回首页</button></div>`);
+  $('reviveBtn').onclick=beginReviveQuiz;$('again').onclick=start;$('backHome').onclick=home;
+}
+function makeReviveQuestion(){
+  const a=1+Math.floor(Math.random()*CFG.mathMax),plus=Math.random()<.5;
+  const b=Math.floor(Math.random()*((plus?CFG.mathMax-a:a)+1));
+  const answer=plus?a+b:a-b,options=Array.from({length:CFG.mathMax+1},(_,i)=>i).filter(n=>n!==answer);
+  // 题目、结果与三个选项都在 0～10 内，减法不出现负数。
+  for(let i=options.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[options[i],options[j]]=[options[j],options[i]];}
+  const choices=[answer,...options.slice(0,2)];
+  for(let i=choices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[choices[i],choices[j]]=[choices[j],choices[i]];}
+  return {a,b,op:plus?'+':'−',answer,choices};
+}
+function beginReviveQuiz(){
+  if(state!=='dead')return;
+  state='reviveQuiz';g.reviveQuestion=makeReviveQuestion();
+  const q=g.reviveQuestion;
+  modal(`<div class="label">动动脑，接着贪</div><h2>答对，就复活</h2><p>选出正确答案<br>分数与强化保留，蛇恢复为 ${CFG.reviveLength} 节</p><div class="math-question" aria-label="${q.a} ${q.op==='+'?'加':'减'} ${q.b} 等于多少">${q.a} <span>${q.op}</span> ${q.b} <span>=</span> ?</div><div class="math-answers" id="mathAnswers"></div><p id="mathFeedback" class="math-feedback" role="status" aria-live="polite">点选答案，游戏时间已暂停</p><div class="two"><button id="quizBack">返回结算</button><button id="quizRestart">重新开始</button></div>`);
+  for(const value of q.choices){
+    const button=document.createElement('button');button.className='math-answer';button.textContent=value;
+    button.setAttribute('aria-label','答案 '+value);
+    button.onclick=()=>{if(state!=='reviveQuiz')return;if(submitReviveAnswer(value)===false){button.disabled=true;button.classList.add('wrong');}};
+    $('mathAnswers').appendChild(button);
+  }
+  $('quizBack').onclick=()=>{state='dead';g.reviveQuestion=null;showResult();};$('quizRestart').onclick=start;
+}
+function submitReviveAnswer(value){
+  if(state!=='reviveQuiz'||!g.reviveQuestion)return;
+  if(value!==g.reviveQuestion.answer){$('mathFeedback').textContent='还差一点，再算算看';vibrate(20);return false;}
+  revive();return true;
+}
+function revive(){
+  if(state!=='reviveQuiz'||!g.reviveQuestion)return;
+  const x=Math.floor(CFG.cols/2)-1,y=Math.floor(CFG.rows/2);
+  g.snake=Array.from({length:CFG.reviveLength},(_,i)=>({x:x-i,y}));
+  g.prev=g.snake.map(p=>({...p}));g.dir=DIR.R;g.queue=[];g.grow=0;
+  const unsafe=p=>g.snake.some(q=>dist(p,q)<=CFG.reviveSafeRadius);
+  g.obstacles=g.obstacles.filter(p=>!unsafe(p));g.pending=g.pending.filter(p=>!unsafe(p));
+  g.fruits=g.fruits.filter(f=>!g.snake.some(p=>same(f,p))&&f.expires>g.time);
+  if(!g.fruits.some(f=>f.type==='normal'))spawn('normal');
+  if(CFG.stage>=2&&!g.fruits.some(f=>f.type==='poison'))spawn('poison');
+  g.combo=0;g.lastFruit=-Infinity;g.settled=false;g.revives++;g.reviveQuestion=null;
+  g.invUntil=0;g.moveClock=0;g.resumeWait=CFG.reviveWait;
+  g.nextObstacles=Math.max(g.nextObstacles,g.time+CFG.obstacleWarning+CFG.reviveWait);
+  particles=[];floats=[];pointer=null;resetControls();closeModal();state='playing';acc=0;last=performance.now();
+  initAudio();sound('select');vibrate([15,30,15]);hud();
+  notify('复活成功 · 准备出发，可先点方向',3);
+}
 function home(){state='home';closeModal();screen('home');refresh();}
 function pause(){if(state!=='playing')return;state='paused';pointer=null;g.pauseAlpha=Math.min(1,acc/interval());g.queue=[];modal('<div class="label">休息一下</div><h2>节奏还在，随时继续</h2><p>游戏时间已冻结<br>回来后先看清路线，再继续前进</p><button class="primary" id="resume">继续游戏</button><button id="quit">结束本局</button>');$('resume').onclick=()=>{initAudio();closeModal();state='playing';last=performance.now();};$('quit').onclick=die;}
 function effects(p,color){if(CFG.stage<5)return;for(let i=0;i<CFG.particleCount;i++){const a=Math.random()*Math.PI*2,v=1+Math.random()*3;particles.push({x:p.x+.5,y:p.y+.5,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:.35+Math.random()*.35,max:.7,color});}if(particles.length>CFG.particleLimit)particles.splice(0,particles.length-CFG.particleLimit);}
@@ -150,7 +226,7 @@ for(const p of g.pending){ctx.fillStyle='rgba(255,150,100,'+(.22+.16*Math.sin(pe
 for(const f of g.fruits){if(f.type==='gold'&&f.expires-g.time<1.5&&Math.floor(g.time*8)%2)continue;const x=(f.x+.5)*cell,y=(f.y+.5)*cell;ctx.fillStyle=f.type==='gold'?'#ffd16e':f.type==='poison'?'#c084e8':'#ff8e79';ctx.beginPath();if(f.type==='gold'){ctx.moveTo(x,y-cell*.4);ctx.lineTo(x+cell*.35,y);ctx.lineTo(x,y+cell*.4);ctx.lineTo(x-cell*.35,y);}else ctx.arc(x,y,cell*.27,0,Math.PI*2);ctx.fill();if(f.type==='poison'){ctx.strokeStyle='#291b3c';ctx.lineWidth=1.7;ctx.beginPath();ctx.moveTo(x-3,y-3);ctx.lineTo(x+3,y+3);ctx.moveTo(x+3,y-3);ctx.lineTo(x-3,y+3);ctx.stroke();}}
 const skin=SKINS[save.skin];if(CFG.stage>=5){ctx.fillStyle=skin.a;ctx.globalAlpha=CFG.trailAlpha;for(const p of g.prev)rounded((p.x+.15)*cell,(p.y+.15)*cell,cell*.7,cell*.7,cell*.24);ctx.globalAlpha=1;}for(let i=g.snake.length-1;i>=0;i--){const p=g.snake[i],prev=g.prev[Math.min(i,g.prev.length-1)]||p;const wrap=Math.abs(p.x-prev.x)>1||Math.abs(p.y-prev.y)>1;const x=(wrap?p.x:prev.x+(p.x-prev.x)*alpha)*cell,y=(wrap?p.y:prev.y+(p.y-prev.y)*alpha)*cell;ctx.shadowColor=skin.a;ctx.shadowBlur=CFG.stage>=5&&i<3?cell*.65:0;ctx.fillStyle=skinPalette[save.skin][Math.round(i/Math.max(1,g.snake.length-1)*63)];ctx.globalAlpha=i===0?1:.7+.3*(1-i/g.snake.length);rounded(x+cell*.07,y+cell*.07,cell*.86,cell*.86,cell*.28);if(i===0){ctx.shadowBlur=0;ctx.fillStyle='#102012';for(const side of [-1,1]){const ex=x+cell*(.5+g.dir.x*.21+g.dir.y*side*.18),ey=y+cell*(.5+g.dir.y*.21+g.dir.x*side*.18);ctx.beginPath();ctx.arc(ex,ey,cell*.065,0,Math.PI*2);ctx.fill();}}}ctx.shadowBlur=0;ctx.globalAlpha=1;drawEffects(dt);}
 function drawEffects(dt){if(CFG.stage<5)return;particles=particles.filter(p=>p.life>0);for(const p of particles){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=dt*2;ctx.globalAlpha=Math.max(0,p.life/p.max);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x*cell,p.y*cell,cell*.07,0,Math.PI*2);ctx.fill();}floats=floats.filter(p=>p.life>0).slice(-CFG.floatLimit);for(const p of floats){p.life-=dt;p.y-=dt*.8;ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.font='bold '+Math.max(12,cell*.7)+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(p.text,p.x*cell,p.y*cell);}ctx.globalAlpha=1;}
-function frame(t){const elapsed=Math.min((t-last)/1000||0,.05);last=t;if(state==='playing'){acc+=elapsed;let n=0;while(acc>=interval()&&n++<6&&state==='playing'){const dt=interval();acc-=dt;step(dt);}}render(state==='playing'?Math.min(1,acc/interval()):state==='paused'?g.pauseAlpha:1,state==='playing'?elapsed:0);requestAnimationFrame(frame);}
+function frame(t){const elapsed=Math.min((t-last)/1000||0,.05);last=t;if(state==='playing'){if(g.resumeWait>0){g.resumeWait=Math.max(0,g.resumeWait-elapsed);}else{acc+=elapsed;let n=0;while(acc>=interval()&&n++<6&&state==='playing'){const dt=interval();acc-=dt;step(dt);}}}render(state==='playing'?Math.min(1,acc/interval()):state==='paused'?g.pauseAlpha:1,state==='playing'?elapsed:0);requestAnimationFrame(frame);}
 // pointerdown 即提交输入，不等待抬手或 click；支持双指连续点按。
 const controlTouches=new Map();
 const controlButtons=['U','L','D','R'].map(k=>$('key'+k));
